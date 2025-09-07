@@ -71,7 +71,7 @@ void log_append(char *command, ShellCmdNode *shell_cmd, char *shell_dir){
     for(int i = 0; i < shell_cmd->count; i++){
         CmdGroupNode *cur_cmd_group = shell_cmd->cmd_groups[i];
         for(int j = 0; j < cur_cmd_group->count; j++){
-            AtomicNode *cur_atomic = cur_cmd_group->atomics[i];
+            AtomicNode *cur_atomic = cur_cmd_group->atomics[j];
             if(cur_atomic->argc && strcmp(cur_atomic->argv[0], "log") == 0){
                 has_log = 1;
             }

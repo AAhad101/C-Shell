@@ -53,7 +53,8 @@ void execute_reveal(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
         f_token = atomic_cmd->argv[i];     // Storing final token, if any
     }
     
-    if((int)strlen(f_token) == 0 || strcmp(f_token, "~") == 0) f_token = shell_dir;       // If there is no final token, we have to print from the home directory relative to shell
+    if((int)strlen(f_token) == 0) f_token = ".";
+    if(strcmp(f_token, "~") == 0) f_token = shell_dir;       // If there is no final token, we have to print from the home directory relative to shell
     if((int)strlen(*pwd) == 0 && strcmp(f_token, "-") == 0){             // If previous working directory hasn't been set
         printf("No such directory!\n");
         return;
