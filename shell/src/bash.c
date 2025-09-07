@@ -1,7 +1,7 @@
 #include "general.h"
 #include "parser.h"
 
-void execute_bash(AtomicNode *atomic_cmd){
+int execute_bash(AtomicNode *atomic_cmd){
     char *args[4];
     for(int i = 0; i < 4; i++){
         args[i] = (char *)malloc(sizeof(char) * CMD_MAX);
@@ -36,17 +36,18 @@ void execute_bash(AtomicNode *atomic_cmd){
 
     pid_t pid = fork();
 
-    if(pid < 0) return;
+    if(pid < 0) return 1;
 
     else if(pid == 0){
         //signal(SIGINT, SIG_DFL);
         execvp(args[0], args);
-        return;
+        exit(1);
     }
 
     else{
-        wait(NULL);
+        int status;
+        waitpid(pid, &status, 0);
+        if(WIFEXITED(status) && WEXITSTATUS(status) == 0) return 0;
+        else return 1;
     }
-
-    return;
 }

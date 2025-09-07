@@ -13,9 +13,9 @@ int hop_verify(AtomicNode *atomic_cmd){
 }
 
 // Function to execute hop
-void execute_hop(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
+int execute_hop(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
     int valid_hop = hop_verify(atomic_cmd);
-    if(!valid_hop) return;        // Return if hop syntax is violated
+    if(!valid_hop) return 1;        // Return 1 (invalid) if hop syntax is violated
 
     char *cur_dir = (char *)malloc(sizeof(char) * PATH_MAX);
     getcwd(cur_dir, PATH_MAX);
@@ -28,7 +28,7 @@ void execute_hop(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
         chdir(shell_dir);
         strcpy(*pwd, cur_dir);
         free(cur_dir);
-        return;       // No arguments means go to home of the shell directory
+        return 0;       // No arguments means go to home of the shell directory
     }
 
     for(int i = 1; i < atomic_cmd->argc; i++){
@@ -63,8 +63,10 @@ void execute_hop(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
             else{                                
                 printf("No such directory!\n");
                 free(cur_dir);
-                return;
+                return 1;
             }
         }
    }
+
+   return 0;
 }

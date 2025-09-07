@@ -21,13 +21,13 @@ int reveal_verify(AtomicNode *atomic_cmd){
 }
 
 // Function to execute reveal
-void execute_reveal(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
+int execute_reveal(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
     int valid_reveal = reveal_verify(atomic_cmd);
-    if(!valid_reveal) return;     // Invalid reveal syntax  
+    if(!valid_reveal) return 1;     // Invalid reveal syntax  
 
     if(valid_reveal == -1){
         printf("reveal: Invalid Syntax!\n");
-        return;
+        return 1;
     }
 
     int a_flag = 0;     // Flag to check if a flag has been used
@@ -57,7 +57,7 @@ void execute_reveal(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
     if(strcmp(f_token, "~") == 0) f_token = shell_dir;       // If there is no final token, we have to print from the home directory relative to shell
     if((int)strlen(*pwd) == 0 && strcmp(f_token, "-") == 0){             // If previous working directory hasn't been set
         printf("No such directory!\n");
-        return;
+        return 1;
     }
     else if(strcmp(f_token, "-") == 0){
         f_token = *pwd;
@@ -67,7 +67,7 @@ void execute_reveal(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
     DIR *dir = opendir(f_token);
     if(!dir){
         printf("No such directory!\n");
-        return;
+        return 1;
     }
 
     struct dirent *entry;
@@ -116,5 +116,7 @@ void execute_reveal(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
         }
     }
 
-    printf("\n");
+    if(!l_flag) printf("\n");
+
+    return 0;
 }

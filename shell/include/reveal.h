@@ -8,6 +8,6 @@ int cmp_strings(const void *name1, const void *name2);
 
 int reveal_verify(AtomicNode *atomic_cmd);
 
-void execute_reveal(AtomicNode *atomic_cmd, char **pwd, char *shell_dir);
+int execute_reveal(AtomicNode *atomic_cmd, char **pwd, char *shell_dir);
 
 #endif

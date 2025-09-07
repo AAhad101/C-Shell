@@ -5,7 +5,7 @@
 #include "bash.h"
 #include "log.h"
 
-void execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir){
+int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_number){
     char *last_in = (char *)malloc(sizeof(char) * CMD_MAX);
     char *last_outapp = (char *)malloc(sizeof(char) * CMD_MAX);
     int in_flag = 0;
@@ -39,13 +39,15 @@ void execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir){
             printf("No such file or directory\n");
             free(last_in);
             free(last_outapp);
-            return;
+            return 1;
         }
         fclose(input_file);
     }
 
+    int ret_value = 1;
+
     if(strcmp(atomic->argv[0], "hop") == 0){
-        execute_hop(atomic, pwd, shell_dir);
+        ret_value = execute_hop(atomic, pwd, shell_dir);
         if(out_flag || app_flag){
             FILE *file = fopen(last_outapp, "w");
             fclose(file);
@@ -58,7 +60,7 @@ void execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir){
             dup2(fd, STDOUT_FILENO);
             close(fd);
 
-            execute_reveal(atomic, pwd, shell_dir);
+            ret_value = execute_reveal(atomic, pwd, shell_dir);
 
             fflush(stdout);
             dup2(saved_stdout, STDOUT_FILENO);
@@ -70,14 +72,14 @@ void execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir){
             dup2(fd, STDOUT_FILENO);
             close(fd);
 
-            execute_reveal(atomic, pwd, shell_dir);
+            ret_value = execute_reveal(atomic, pwd, shell_dir);
 
             fflush(stdout);
             dup2(saved_stdout, STDOUT_FILENO);
             close(saved_stdout);   
         }
         else{
-            execute_reveal(atomic, pwd, shell_dir);
+            ret_value = execute_reveal(atomic, pwd, shell_dir);
         }
     }
     else if(strcmp(atomic->argv[0], "log") == 0){
@@ -87,7 +89,7 @@ void execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir){
             dup2(fd, STDOUT_FILENO);
             close(fd);
 
-            execute_log(atomic, shell_dir, pwd);
+            ret_value = execute_log(atomic, shell_dir, pwd, job_number);
 
             fflush(stdout);
             dup2(saved_stdout, STDOUT_FILENO);
@@ -99,33 +101,32 @@ void execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir){
             dup2(fd, STDOUT_FILENO);
             close(fd);
 
-            execute_log(atomic, shell_dir, pwd);
+            ret_value = execute_log(atomic, shell_dir, pwd, job_number);
 
             fflush(stdout);
             dup2(saved_stdout, STDOUT_FILENO);
             close(saved_stdout);   
         }
         else{
-            execute_log(atomic, shell_dir, pwd);
+            ret_value = execute_log(atomic, shell_dir, pwd, job_number);
         }
     }
     else{
-        execute_bash(atomic);
+        ret_value = execute_bash(atomic);
     }
 
     free(last_in);
     free(last_outapp);
-    return;
+    return ret_value;
 }
 
-void execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir){
+int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int *job_number){
     int atomic_num = cmd_group->count;
-    if(atomic_num == 0) return;
+    if(atomic_num == 0) return 1;
 
     // If no pipes are there, just execute normally
     if(atomic_num == 1){
-        execute_atomic(cmd_group->atomics[0], pwd, shell_dir);
-        return;
+        return execute_atomic(cmd_group->atomics[0], pwd, shell_dir, job_number);
     }
 
     int pipes[atomic_num - 1][2];       // Two file descriptors per pipe
@@ -133,15 +134,18 @@ void execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir){
     // Creating the required number of pipes (n commands, n-1 pipes)
     for(int i = 0; i < atomic_num - 1; i++){
         if(pipe(pipes[i]) < 0){
-            return;
+            return 1;
         }
     }
+
+    pid_t child_pids[atomic_num];   // Storing PIDs of forked child processes
+    pid_t final_pid;
 
     // Creating a child process for each pipe and redirecting as required
     for(int i = 0; i < atomic_num; i++){
         pid_t pid = fork();
         if(pid < 0){
-            return;
+            return 1;
         }
         if(pid == 0){
             if(i > 0) dup2(pipes[i-1][0], STDIN_FILENO);    // Other than first command, redirect STDIN to previous pipe's read end
@@ -154,9 +158,11 @@ void execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir){
             }
 
             // Executes the atomic
-            execute_atomic(cmd_group->atomics[i], pwd, shell_dir);
-            exit(0);
+            int status = execute_atomic(cmd_group->atomics[i], pwd, shell_dir, job_number);
+            exit(status);
         }
+        child_pids[i] = pid;
+        if(i == atomic_num - 1) final_pid = pid;
     }
     
     // Parent closes all pipe file descriptors as the children processes manage them
@@ -165,25 +171,158 @@ void execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir){
         close(pipes[i][1]);
     }
 
+    int status;
+    int ret_value = 1;
+
     // Parent waits for all children
     for(int i = 0; i < atomic_num; i++){
-        wait(NULL);
+        pid_t wpid = waitpid(child_pids[i], &status, 0);
+        if(wpid == final_pid){
+            if(WIFEXITED(status) && WEXITSTATUS(status) == 0) ret_value = 0;
+            else ret_value = 1;
+        }
     }
+
+    return ret_value;
 }
 
-void execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir){
+/*void execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir){
     for(int i = 0; i < shell_cmd->count; i++){
         execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir);           // HAVE TO LOOK AT SEQUENTIAL AND BACKGROUND
         
-        /*CmdGroupNode *current_cmd_group = shell_cmd->cmd_groups[i];
+        CmdGroupNode *current_cmd_group = shell_cmd->cmd_groups[i];
         for(int j = 0; j < current_cmd_group->count; j++){
             AtomicNode *current_atomic = current_cmd_group->atomics[j];
             for(int k = 0; k < current_atomic->argc; k++){ 
                 printf("%s ", current_atomic->argv[k]);
             }
             printf("\n");
-        }*/
+        }
+    }
+    
+    return;
+}*/
+
+int num_len(int num){
+    if(num == 0) return 1;
+
+    int i = 0;
+    while(num > 0){
+        i++;
+        num /= 10;
+    }
+    return i;
+}
+
+char *int_to_str(int number){
+    int len = num_len(number);
+
+    char *num = (char *)malloc((len+1)*sizeof(char));
+
+    for(int i = len-1; i >= 0; i--){
+        int dig = number % 10;
+        num[i] = dig + '0';
+        number /= 10;
     }
 
-    return;
+    num[len] = 0;
+
+    return num;
+}
+
+
+int execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir, char *command, int *job_number){
+    // First identify if a shell_group is to be a background process or not
+    for(int i = 0; i < shell_cmd->count; i++){
+        char op;
+        if(i < shell_cmd->count - 1){
+            op = shell_cmd->operators[i];
+        }
+        else if(i == shell_cmd->count - 1){
+            if(shell_cmd->background == 1) op = '&';
+            else if(shell_cmd->background == 0) op = ';';
+        }
+
+        // If it isn't a background process, execute
+        if(op == ';'){
+            return execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir, job_number);
+        }
+
+        else{
+            pid_t pid = fork();
+
+            if(pid < 0){
+                return 1;
+            }
+            else if(pid == 0){
+                int child_pid = getpid();
+                int cur_jobno = *job_number;
+                (*job_number)++;
+
+                char *print_line = (char *)malloc(sizeof(char) * CMD_MAX);
+                strcpy(print_line, "[");
+                strcat(print_line, int_to_str(cur_jobno));
+                strcat(print_line, "] ");
+                strcat(print_line, int_to_str(child_pid));
+                printf("%s\n", print_line);
+
+                int exit_status = execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir, job_number);
+                exit(exit_status);
+            }
+            else{
+                int status;
+                waitpid(pid, &status, 0);
+
+                char *back_path = (char *)malloc(sizeof(char) * CMD_MAX);
+                strcpy(back_path, shell_dir);
+                strcat(back_path, "/background.txt");
+
+                if(WIFEXITED(status) && WEXITSTATUS(status) == 0){
+                    //  WRITE EXITED NORMALLY
+                    char *line = (char *)malloc(sizeof(char) * CMD_MAX);
+                    strcpy(line, command);
+                    strcat(line, " with pid ");
+                    strcat(line, int_to_str(pid));
+                    strcat(line, " exited normally");
+
+                    FILE *back_file = fopen(back_path, "a");
+                    fprintf(back_file, "%s\n", line);
+                    fclose(back_file);
+
+                    return 0;
+                }
+                else{
+                    // WRITE EXITED ABNORMALLY
+                    char *line = (char *)malloc(sizeof(char) * CMD_MAX);
+                    strcpy(line, command);
+                    strcat(line, " with pid ");
+                    strcat(line, int_to_str(pid));
+                    strcat(line, " exited abnormally");
+
+                    FILE *back_file = fopen(back_path, "a");
+                    fprintf(back_file, "%s\n", line);
+                    fclose(back_file);
+
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0; 
+}
+
+void print_completed_bg(char *shell_dir){
+    char *back_path = (char *)malloc(sizeof(char) * CMD_MAX);
+    strcpy(back_path, shell_dir);
+    strcat(back_path, "/background.txt");
+
+    FILE *back_file = fopen(back_path, "r");
+    char buffer[CMD_MAX];
+    while(fgets(buffer, sizeof(buffer), back_file) != NULL){
+        printf("%s", buffer);
+    }
+    fclose(back_file);
+
+    back_file = fopen(back_path, "w");
+    fclose(back_file);
 }

@@ -78,14 +78,13 @@ void log_append(char *command, ShellCmdNode *shell_cmd, char *shell_dir){
         }
     }
 
-    if(has_log) return;     // We ignore any command with an atomic containing a log command
-    
-    // Creates log.txt if it doesn't already exist
+    // Storing path of log.txt
     char *log_path = (char *)malloc(sizeof(char) * CMD_MAX);
     strcpy(log_path, shell_dir);
     strcat(log_path, "/log.txt");
-    FILE *log_file = fopen(log_path, "a");
-    fclose(log_file);
+    FILE *log_file;
+
+    if(has_log) return;     // We ignore any command with an atomic containing a log command
 
     int cmds = count_logs(log_path);    // Counts the number of lines in the log file
 
@@ -124,15 +123,17 @@ void log_append(char *command, ShellCmdNode *shell_cmd, char *shell_dir){
     }
 }
 
-void execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd){
+int execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd, int *job_number){
     // Checking if the log syntax is valid or not
     int valid_log = log_verify(atomic_cmd);
 
     if(valid_log == 0){
         //printf("log: Invalid Syntax!\n");     // REMOVED FOR NOW
-        return;
+        return 1;
     }
 
+    int ret_value = 1;
+    
     char *log_path = (char *)malloc(sizeof(char) * CMD_MAX);
     strcpy(log_path, shell_dir);
     strcat(log_path, "/log.txt");
@@ -145,21 +146,21 @@ void execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd){
             printf("%s", line);
         }
         fclose(log_file);
-        return;
+        return 0;
     }
 
     // Executing log purge
     else if(atomic_cmd->argc == 2){
         FILE *log_file = fopen(log_path, "w");
         fclose(log_file);
-        return;
+        return 0;
     }
 
     // Executing log execute ___
     else if(atomic_cmd->argc == 3){
-        int line_num = str_to_int(atomic_cmd->argv[2]);     // Extracting the line number to execute
+        int line_num = str_to_int(atomic_cmd->argv[2]);   // Extracting the line number to execute
         int total_lines = count_logs(log_path);             
-        if(line_num > total_lines) return;                  // Returning if argument is greater than number of lines in log file
+        if(line_num > total_lines) return 1;              // Returning 1 if argument is greater than number of lines in log file
         line_num = total_lines - line_num + 1;
     
         FILE *log_file = fopen(log_path, "r");
@@ -176,19 +177,22 @@ void execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd){
         Token *tokenised_cmd = tokenise(command);   // Tokenising
         if(!tokenised_cmd){     // If tokenisation fails
             printf("Invalid Syntax!\n");
+            return 1;
         }
 
         else{
             ShellCmdNode *root = parse_shell_cmd(&tokenised_cmd);   // Parssing and creating abstract syntax tree
             if(!root){
                 printf("Invalid Syntax!\n");
-                return;
+                return 1;
             }
             
-            execute_shell_cmd(root, pwd, shell_dir);   // Executing valid command
+            ret_value = execute_shell_cmd(root, pwd, shell_dir, command, job_number);   // Executing valid command
             log_append(command, root, shell_dir);  // Logging appropriately
         }
 
-        return;
+        return ret_value;
     }
+
+    return ret_value;
 }

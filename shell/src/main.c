@@ -10,11 +10,29 @@ int main(){
     char *shell_dir = (char *)malloc(sizeof(char) * PATH_MAX);     // Storing path of the directory of the shell
     getcwd(shell_dir, PATH_MAX);
 
+    // Creates log.txt
+    char *log_path = (char *)malloc(sizeof(char) * CMD_MAX);
+    strcpy(log_path, shell_dir);
+    strcat(log_path, "/log.txt");
+    FILE *log_file = fopen(log_path, "a");
+    fclose(log_file);
+
+    // Creates background.txt
+    char *back_path = (char *)malloc(sizeof(char) *CMD_MAX);
+    strcpy(back_path, shell_dir);
+    strcat(back_path, "/background.txt");
+    FILE *back_file = fopen(back_path, "a");
+    fclose(back_file);
+
+    int job_number = 1;
+
     while(1){
         char *command = (char *)malloc(sizeof(char) * CMD_MAX);     // Storing command
         show_prompt(shell_dir);
     
         scanf(" %[^\n]", command);      
+
+        print_completed_bg(shell_dir);
 
         Token *tokenised_cmd = tokenise(command);       // Tokenising command
         
@@ -44,12 +62,12 @@ int main(){
                 continue;
             }
             
-            execute_shell_cmd(root, &prev_wd, shell_dir);   // Executing valid command
+            execute_shell_cmd(root, &prev_wd, shell_dir, command, &job_number);   // Executing valid command
             log_append(command, root, shell_dir);  // Logging appropriately
         }
+
+        free(command);
     }
     return 0;
 }
 
-
-// create variable to store the previous working directory, NULL if none, and pass to execute_hop fuction
