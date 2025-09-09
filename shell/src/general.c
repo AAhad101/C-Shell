@@ -58,14 +58,13 @@ char *stringify_atomic(AtomicNode *atomic_cmd){
     }
 
     for(int i = 0; i < atomic_cmd->count; i++){
-        if(i == 0) strcat(string, " ");
+        strcat(string, " ");
         char *op = atomic_cmd->op[i];
         char *file_name = atomic_cmd->files[i];
 
         strcat(string, op);
         strcat(string, " ");
         strcat(string, file_name);
-        strcat(string, " ");
     }
 
     return string;

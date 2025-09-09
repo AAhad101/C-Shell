@@ -2,7 +2,7 @@
 #include "../include/hop.h"
 #include "../include/reveal.h"
 #include "../include/parser.h"
-#include "../include/bash.h"
+#include "../include/arbitrary.h"
 #include "../include/log.h"
 #include "../include/background.h"
 #include "../include/activities.h"
@@ -165,9 +165,76 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
         }
     }
     else{
-        ret_value = execute_bash(atomic);
-    }
+        if(in_flag){
+            int saved_stdin = dup(STDIN_FILENO);
+            int fd_in = open(last_in, O_RDONLY);
+            dup2(fd_in, STDIN_FILENO);
+            close(fd_in);
 
+            if(out_flag){
+                int saved_stdout = dup(STDOUT_FILENO);
+                int fd_out = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                dup2(fd_out, STDOUT_FILENO);
+                close(fd_out);
+
+                ret_value = execute_arbitrary(atomic);
+
+                fflush(stdout);
+                dup2(saved_stdout, STDOUT_FILENO);
+                close(saved_stdout);
+            }
+            else if(app_flag){
+                int saved_stdout = dup(STDOUT_FILENO);
+                int fd_app = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
+                dup2(fd_app, STDOUT_FILENO);
+                close(fd_app);
+
+                ret_value = execute_arbitrary(atomic);
+
+                fflush(stdout);
+                dup2(saved_stdout, STDOUT_FILENO);
+                close(saved_stdout);   
+            }
+            else{
+                ret_value = execute_arbitrary(atomic);
+            }
+
+            fflush(stdout);
+            dup2(saved_stdin, STDIN_FILENO);
+            close(saved_stdin);
+        }
+
+        else{
+            if(out_flag){
+                int saved_stdout = dup(STDOUT_FILENO);
+                int fd_out = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                dup2(fd_out, STDOUT_FILENO);
+                close(fd_out);
+
+                ret_value = execute_arbitrary(atomic);
+
+                fflush(stdout);
+                dup2(saved_stdout, STDOUT_FILENO);
+                close(saved_stdout);
+            }
+            else if(app_flag){
+                int saved_stdout = dup(STDOUT_FILENO);
+                int fd_app = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
+                dup2(fd_app, STDOUT_FILENO);
+                close(fd_app);
+
+                ret_value = execute_arbitrary(atomic);
+
+                fflush(stdout);
+                dup2(saved_stdout, STDOUT_FILENO);
+                close(saved_stdout);   
+            }
+            else{
+                ret_value = execute_arbitrary(atomic);
+            }
+        }
+    }
+    
     free(last_in);
     free(last_outapp);
     return ret_value;
