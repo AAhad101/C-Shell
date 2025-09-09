@@ -1,5 +1,5 @@
-#include "general.h"
-#include "reveal.h"
+#include "../include/general.h"
+#include "../include/reveal.h"
 
 // Comparator to sort file and directory names by ASCII value
 int cmp_strings(const void *name1, const void *name2){

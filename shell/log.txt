@@ -1,5 +1,4 @@
+sleep 5 & echo hi &
+ls
 sleep 5 &
-hello
-sleep 5 &
-cat ansdlas &
-cat background.txt
+ls

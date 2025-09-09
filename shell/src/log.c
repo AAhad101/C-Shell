@@ -1,25 +1,6 @@
-#include "general.h"
-#include "parser.h"
-#include "executor.h"
-
-// Function to calculate positive integral powers of 10
-int pow_ten(int pow){
-    int ans = 1;
-    for(int i = 0; i < pow; i++){
-        ans *= 10;
-    }
-    return ans;
-}
-
-// Function to convert string to integer
-int str_to_int(char *str){
-    int len = (int)strlen(str);
-    int val = 0;
-    for(int i = len-1; i >= 0; i--){
-        val += pow_ten(len - i - 1) * (str[i] - '0');
-    }
-    return val;
-}
+#include "../include/general.h"
+#include "../include/parser.h"
+#include "../include/executor.h"
 
 // Function to check if the argument of log execute is valid
 int valid_log_num(char *str){
@@ -123,7 +104,7 @@ void log_append(char *command, ShellCmdNode *shell_cmd, char *shell_dir){
     }
 }
 
-int execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd, int *job_number){
+int execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd, int *job_number, BG_process **bg_prcs, int *active_bgs){
     // Checking if the log syntax is valid or not
     int valid_log = log_verify(atomic_cmd);
 
@@ -187,7 +168,7 @@ int execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd, int *job_nu
                 return 1;
             }
             
-            ret_value = execute_shell_cmd(root, pwd, shell_dir, command, job_number);   // Executing valid command
+            ret_value = execute_shell_cmd(root, pwd, shell_dir, command, job_number, bg_prcs, active_bgs);   // Executing valid command
             log_append(command, root, shell_dir);  // Logging appropriately
         }
 

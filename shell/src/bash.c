@@ -1,5 +1,5 @@
-#include "general.h"
-#include "parser.h"
+#include "../include/general.h"
+#include "../include/parser.h"
 
 int execute_bash(AtomicNode *atomic_cmd){
     char *args[4];

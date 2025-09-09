@@ -1,9 +1,10 @@
-#include "general.h"
-#include "prompt.h"
-#include "parser.h"
-#include "hop.h"
-#include "executor.h"
-#include "log.h"
+#include "../include/general.h"
+#include "../include/prompt.h"
+#include "../include/parser.h"
+#include "../include/hop.h"
+#include "../include/executor.h"
+#include "../include/log.h"
+#include "../include/background.h"
 
 int main(){
     char *prev_wd = (char *)malloc(sizeof(char) * PATH_MAX);       // Buffer to store path of previous working directory, empty is none
@@ -17,13 +18,8 @@ int main(){
     FILE *log_file = fopen(log_path, "a");
     fclose(log_file);
 
-    // Creates background.txt
-    char *back_path = (char *)malloc(sizeof(char) *CMD_MAX);
-    strcpy(back_path, shell_dir);
-    strcat(back_path, "/background.txt");
-    FILE *back_file = fopen(back_path, "a");
-    fclose(back_file);
-
+    BG_process *bg_prcs = NULL;
+    int active_bgs = 0;
     int job_number = 1;
 
     while(1){
@@ -32,7 +28,7 @@ int main(){
     
         scanf(" %[^\n]", command);      
 
-        print_completed_bg(shell_dir);
+        print_terminated_bg(&bg_prcs, &active_bgs);
 
         Token *tokenised_cmd = tokenise(command);       // Tokenising command
         
@@ -47,7 +43,7 @@ int main(){
             int i = 0;
             while(tokenised_cmd[i].type != TOKEN_EOF){
                 printf("Token type: %s\n", enum_translate[tokenised_cmd[i].type]);
-                if(tokenised_cmd[i].type == TOKEN_NAME)
+                if(kenised_cmd[i].type == TOKEN_NAME)
                     printf("Token string: %s\n", tokenised_cmd[i].token);
                 printf("Token position: %d\n", tokenised_cmd[i].position);
 
@@ -62,12 +58,12 @@ int main(){
                 continue;
             }
             
-            execute_shell_cmd(root, &prev_wd, shell_dir, command, &job_number);   // Executing valid command
+            execute_shell_cmd(root, &prev_wd, shell_dir, command, &job_number, &bg_prcs, &active_bgs);   // Executing valid command
             log_append(command, root, shell_dir);  // Logging appropriately
         }
 
         free(command);
     }
+
     return 0;
 }
-

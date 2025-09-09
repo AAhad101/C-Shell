@@ -1,11 +1,12 @@
-#include "general.h"
-#include "hop.h"
-#include "reveal.h"
-#include "parser.h"
-#include "bash.h"
-#include "log.h"
+#include "../include/general.h"
+#include "../include/hop.h"
+#include "../include/reveal.h"
+#include "../include/parser.h"
+#include "../include/bash.h"
+#include "../include/log.h"
+#include "../include/background.h"
 
-int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_number){
+int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_number, BG_process **bg_prcs, int *active_bgs){
     char *last_in = (char *)malloc(sizeof(char) * CMD_MAX);
     char *last_outapp = (char *)malloc(sizeof(char) * CMD_MAX);
     int in_flag = 0;
@@ -89,7 +90,7 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
             dup2(fd, STDOUT_FILENO);
             close(fd);
 
-            ret_value = execute_log(atomic, shell_dir, pwd, job_number);
+            ret_value = execute_log(atomic, shell_dir, pwd, job_number, bg_prcs, active_bgs);
 
             fflush(stdout);
             dup2(saved_stdout, STDOUT_FILENO);
@@ -101,14 +102,14 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
             dup2(fd, STDOUT_FILENO);
             close(fd);
 
-            ret_value = execute_log(atomic, shell_dir, pwd, job_number);
+            ret_value = execute_log(atomic, shell_dir, pwd, job_number, bg_prcs, active_bgs);
 
             fflush(stdout);
             dup2(saved_stdout, STDOUT_FILENO);
             close(saved_stdout);   
         }
         else{
-            ret_value = execute_log(atomic, shell_dir, pwd, job_number);
+            ret_value = execute_log(atomic, shell_dir, pwd, job_number, bg_prcs, active_bgs);
         }
     }
     else{
@@ -120,13 +121,13 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
     return ret_value;
 }
 
-int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int *job_number){
+int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int *job_number, BG_process **bg_prcs, int *active_bgs){
     int atomic_num = cmd_group->count;
     if(atomic_num == 0) return 1;
 
     // If no pipes are there, just execute normally
     if(atomic_num == 1){
-        return execute_atomic(cmd_group->atomics[0], pwd, shell_dir, job_number);
+        return execute_atomic(cmd_group->atomics[0], pwd, shell_dir, job_number, bg_prcs, active_bgs);
     }
 
     int pipes[atomic_num - 1][2];       // Two file descriptors per pipe
@@ -158,7 +159,7 @@ int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int 
             }
 
             // Executes the atomic
-            int status = execute_atomic(cmd_group->atomics[i], pwd, shell_dir, job_number);
+            int status = execute_atomic(cmd_group->atomics[i], pwd, shell_dir, job_number, bg_prcs, active_bgs);
             exit(status);
         }
         child_pids[i] = pid;
@@ -203,35 +204,7 @@ int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int 
     return;
 }*/
 
-int num_len(int num){
-    if(num == 0) return 1;
-
-    int i = 0;
-    while(num > 0){
-        i++;
-        num /= 10;
-    }
-    return i;
-}
-
-char *int_to_str(int number){
-    int len = num_len(number);
-
-    char *num = (char *)malloc((len+1)*sizeof(char));
-
-    for(int i = len-1; i >= 0; i--){
-        int dig = number % 10;
-        num[i] = dig + '0';
-        number /= 10;
-    }
-
-    num[len] = 0;
-
-    return num;
-}
-
-
-int execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir, char *command, int *job_number){
+int execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir, char *command, int *job_number, BG_process **bg_prcs, int *active_bgs){
     // First identify if a shell_group is to be a background process or not
     for(int i = 0; i < shell_cmd->count; i++){
         char op;
@@ -245,7 +218,7 @@ int execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir, char
 
         // If it isn't a background process, execute
         if(op == ';'){
-            return execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir, job_number);
+            return execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir, job_number, bg_prcs, active_bgs);
         }
 
         else{
@@ -255,74 +228,17 @@ int execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir, char
                 return 1;
             }
             else if(pid == 0){
-                int child_pid = getpid();
-                int cur_jobno = *job_number;
-                (*job_number)++;
-
-                char *print_line = (char *)malloc(sizeof(char) * CMD_MAX);
-                strcpy(print_line, "[");
-                strcat(print_line, int_to_str(cur_jobno));
-                strcat(print_line, "] ");
-                strcat(print_line, int_to_str(child_pid));
-                printf("%s\n", print_line);
-
-                int exit_status = execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir, job_number);
+                int exit_status = execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir, job_number, bg_prcs, active_bgs);
                 exit(exit_status);
             }
             else{
-                int status;
-                waitpid(pid, &status, 0);
-
-                char *back_path = (char *)malloc(sizeof(char) * CMD_MAX);
-                strcpy(back_path, shell_dir);
-                strcat(back_path, "/background.txt");
-
-                if(WIFEXITED(status) && WEXITSTATUS(status) == 0){
-                    //  WRITE EXITED NORMALLY
-                    char *line = (char *)malloc(sizeof(char) * CMD_MAX);
-                    strcpy(line, command);
-                    strcat(line, " with pid ");
-                    strcat(line, int_to_str(pid));
-                    strcat(line, " exited normally");
-
-                    FILE *back_file = fopen(back_path, "a");
-                    fprintf(back_file, "%s\n", line);
-                    fclose(back_file);
-
-                    return 0;
-                }
-                else{
-                    // WRITE EXITED ABNORMALLY
-                    char *line = (char *)malloc(sizeof(char) * CMD_MAX);
-                    strcpy(line, command);
-                    strcat(line, " with pid ");
-                    strcat(line, int_to_str(pid));
-                    strcat(line, " exited abnormally");
-
-                    FILE *back_file = fopen(back_path, "a");
-                    fprintf(back_file, "%s\n", line);
-                    fclose(back_file);
-
-                    return 1;
-                }
+                int cur_jobno = *job_number;
+                (*job_number)++;
+                printf("[%d] %d\n", cur_jobno, pid);
+                char *cur_cmd_group = stringify_cmd_group(shell_cmd->cmd_groups[i]);
+                add_background(pid, cur_jobno, cur_cmd_group, bg_prcs, active_bgs);
             }
         }
     }
     return 0; 
-}
-
-void print_completed_bg(char *shell_dir){
-    char *back_path = (char *)malloc(sizeof(char) * CMD_MAX);
-    strcpy(back_path, shell_dir);
-    strcat(back_path, "/background.txt");
-
-    FILE *back_file = fopen(back_path, "r");
-    char buffer[CMD_MAX];
-    while(fgets(buffer, sizeof(buffer), back_file) != NULL){
-        printf("%s", buffer);
-    }
-    fclose(back_file);
-
-    back_file = fopen(back_path, "w");
-    fclose(back_file);
 }

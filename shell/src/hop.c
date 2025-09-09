@@ -1,5 +1,5 @@
-#include "general.h"
-#include "hop.h"
+#include "../include/general.h"
+#include "../include/hop.h"
 
 // Function to validate syntax of hop command
 int hop_verify(AtomicNode *atomic_cmd){

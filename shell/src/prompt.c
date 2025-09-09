@@ -1,9 +1,9 @@
-#include "general.h"
-#include "prompt.h"
+#include "../include/general.h"
+#include "../include/prompt.h"
 
 void show_prompt(char *shell_dir){
     int username_len;
-    int sysname_len;
+    //int sysname_len;
     int shelldir_len;
 
     // Getting username
@@ -21,7 +21,7 @@ void show_prompt(char *shell_dir){
     //printf("User name: %s\n", username);
 
 
-    // Getting system name
+/*    // Getting system name
     struct utsname buf;
     if(uname(&buf) != 0){
         exit(1);//      
@@ -30,6 +30,10 @@ void show_prompt(char *shell_dir){
     sysname_len = strlen(buf.nodename);
     char *sysname = (char *)malloc(sizeof(char) * (sysname_len + 1));
     strcpy(sysname, buf.nodename);
+*/
+
+    char *sysname = (char *)malloc(sizeof(char) * 1024);
+    gethostname(sysname, 1023);    
 
     //printf("System name: %s\n", sysname);
 
