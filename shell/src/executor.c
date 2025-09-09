@@ -5,6 +5,7 @@
 #include "../include/bash.h"
 #include "../include/log.h"
 #include "../include/background.h"
+#include "../include/activities.h"
 
 int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_number, BG_process **bg_prcs, int *active_bgs){
     char *last_in = (char *)malloc(sizeof(char) * CMD_MAX);
@@ -47,11 +48,33 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
 
     int ret_value = 1;
 
-    if(strcmp(atomic->argv[0], "hop") == 0){
-        ret_value = execute_hop(atomic, pwd, shell_dir);
-        if(out_flag || app_flag){
-            FILE *file = fopen(last_outapp, "w");
-            fclose(file);
+    if(strcmp(atomic->argv[0], "hop") == 0){        /// CHANGE CHANGE CHANGE CHANGE 
+        if(out_flag){
+            int saved_stdout = dup(STDOUT_FILENO);
+            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+
+            ret_value = execute_hop(atomic, pwd, shell_dir);
+
+            fflush(stdout);
+            dup2(saved_stdout, STDOUT_FILENO);
+            close(saved_stdout);
+        }
+        else if(app_flag){
+            int saved_stdout = dup(STDOUT_FILENO);
+            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+
+            ret_value = execute_hop(atomic, pwd, shell_dir);
+
+            fflush(stdout);
+            dup2(saved_stdout, STDOUT_FILENO);
+            close(saved_stdout);   
+        }
+        else{
+            ret_value = execute_hop(atomic, pwd, shell_dir);
         }
     }
     else if(strcmp(atomic->argv[0], "reveal") == 0){
@@ -110,6 +133,35 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
         }
         else{
             ret_value = execute_log(atomic, shell_dir, pwd, job_number, bg_prcs, active_bgs);
+        }
+    }
+    else if(strcmp(atomic->argv[0], "activities") == 0){
+        if(out_flag){
+            int saved_stdout = dup(STDOUT_FILENO);
+            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+
+            ret_value = execute_activities(atomic, bg_prcs, active_bgs);
+
+            fflush(stdout);
+            dup2(saved_stdout, STDOUT_FILENO);
+            close(saved_stdout);
+        }
+        else if(app_flag){
+            int saved_stdout = dup(STDOUT_FILENO);
+            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+
+            ret_value = execute_activities(atomic, bg_prcs, active_bgs);
+
+            fflush(stdout);
+            dup2(saved_stdout, STDOUT_FILENO);
+            close(saved_stdout);   
+        }
+        else{
+            ret_value = execute_activities(atomic, bg_prcs, active_bgs);
         }
     }
     else{
@@ -236,6 +288,7 @@ int execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir, char
                 (*job_number)++;
                 printf("[%d] %d\n", cur_jobno, pid);
                 char *cur_cmd_group = stringify_cmd_group(shell_cmd->cmd_groups[i]);
+                //printf("Current Command Group: %s\n", cur_cmd_group); //////////////////////
                 add_background(pid, cur_jobno, cur_cmd_group, bg_prcs, active_bgs);
             }
         }

@@ -39,9 +39,10 @@ int execute_reveal(AtomicNode *atomic_cmd, char **pwd, char *shell_dir){
     while(i < atomic_cmd->argc && atomic_cmd->argv[i][0] == '-' && (int)strlen(atomic_cmd->argv[i]) > 1 && (!a_flag || !l_flag)){       // Checking if a and/or l flags have been set 
         int j = 1;
         char *cur_token = atomic_cmd->argv[i];
-        while(j < (int)strlen(cur_token) && (!a_flag || !l_flag)){
+        while(j < (int)strlen(cur_token) && (!a_flag || !l_flag)){ //// CHANGE CHANGE CHANGE CHANGE
             if(cur_token[j] == 'l') l_flag = 1;
-            if(cur_token[j] == 'a') a_flag = 1;
+            else if(cur_token[j] == 'a') a_flag = 1;
+            else return 1;      // Flag has other characters than l or a
             j++;
         }
         i++;

@@ -1,0 +1,7 @@
+sleep 3 & sleep 6 & sleep 9 &
+activities
+sleep 2 & sleep 4 &
+activities
+sleep 2 & sleep 4 &
+activities
+ls

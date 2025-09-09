@@ -17,7 +17,7 @@ void add_background(pid_t pid, int job_no, char *command, BG_process **bg_prcs, 
         cur_prcs.job_no = job_no;
         cur_prcs.status = RUNNING;
         cur_prcs.command = strdup(command);
-        //printf("Command: %s\n", cur_prcs.command);
+        //printf("Command in struct: %s\nCommand in string: %s\n", cur_prcs.command, command);
         (*bg_prcs)[*active_bgs - 1] = cur_prcs;
 
         return;
@@ -30,7 +30,7 @@ void add_background(pid_t pid, int job_no, char *command, BG_process **bg_prcs, 
     cur_prcs.job_no = job_no;
     cur_prcs.status = RUNNING;
     cur_prcs.command = strdup(command);
-    //printf("Command: %s\n", cur_prcs.command);    
+    //printf("Command in struct: %s\nCommand in string: %s\n", cur_prcs.command, command);    
     (*bg_prcs)[*active_bgs - 1] = cur_prcs;
 
     return;
@@ -49,7 +49,11 @@ void remove_terminated_bg(BG_process **bg_prcs, int *active_bgs){
     int k = 0;
 
     for(int i = 0; i < *active_bgs; i++){
-        BG_process cur_prcs = (*bg_prcs)[i];
+        BG_process cur_prcs;
+        cur_prcs.job_no = (*bg_prcs)[i].job_no;
+        cur_prcs.pid = (*bg_prcs)[i].pid;
+        cur_prcs.status = (*bg_prcs)[i].status;
+        cur_prcs.command = strdup((*bg_prcs)[i].command);
         if(cur_prcs.status != TERMINATED){
             new_bg_prcs[k++] = cur_prcs;
         }
@@ -71,17 +75,21 @@ void remove_terminated_bg(BG_process **bg_prcs, int *active_bgs){
 void print_terminated_bg(BG_process **bg_prcs, int *active_bgs){
     for(int i = 0; i < *active_bgs; i++){
         BG_process cur_prcs = (*bg_prcs)[i];
-        pid_t pid = cur_prcs.pid;
+        
         int status;
-        waitpid(pid, &status, WNOHANG);
+        pid_t ret = waitpid(cur_prcs.pid, &status, WNOHANG);
 
-        if(WIFEXITED(status) && WEXITSTATUS(status) == 0){
-            printf("%s with pid %d exited normally\n", cur_prcs.command, cur_prcs.pid);
-            ((*bg_prcs)[i]).status = TERMINATED;
-        }
-        else if(WIFEXITED(status) && WEXITSTATUS(status) == 1){
-            printf("%s with pid %d exited abnormally\n", cur_prcs.command, cur_prcs.pid);
-            ((*bg_prcs)[i]).status = TERMINATED;   
+        if(ret == 0) continue;
+
+        else if(ret == cur_prcs.pid){
+            if(WIFEXITED(status) && WEXITSTATUS(status) == 0){
+                printf("%s with pid %d exited normally\n", cur_prcs.command, cur_prcs.pid);
+                ((*bg_prcs)[i]).status = TERMINATED;
+            }
+            else if(WIFEXITED(status) && WEXITSTATUS(status) == 1){
+                printf("%s with pid %d exited abnormally\n", cur_prcs.command, cur_prcs.pid);
+                ((*bg_prcs)[i]).status = TERMINATED;   
+            }
         }
     }
 
