@@ -1,4 +1,0 @@
-sleep 5 & echo hi &
-ls
-sleep 5 &
-ls
