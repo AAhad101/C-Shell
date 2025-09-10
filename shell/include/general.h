@@ -12,6 +12,7 @@
 #include <dirent.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <signal.h>
 #include "parser.h"
 
 #define CMD_MAX 4096

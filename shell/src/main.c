@@ -26,7 +26,14 @@ int main(){
         char *command = (char *)malloc(sizeof(char) * CMD_MAX);     // Storing command
         show_prompt(shell_dir);
     
-        scanf(" %[^\n]", command);      
+        int ret = scanf(" %[^\n]", command);      
+        if(ret == EOF){
+            for(int i = 0; i < active_bgs; i++){
+                kill(bg_prcs[i].pid, SIGKILL);
+            }
+            printf("logout\n");
+            exit(0);
+        }
 
         print_terminated_bg(&bg_prcs, &active_bgs);
 
