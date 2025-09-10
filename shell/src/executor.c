@@ -7,7 +7,7 @@
 #include "../include/background.h"
 #include "../include/activities.h"
 #include "../include/signals.h"
-#include "../include/fg.h"
+#include "../include/bg.h"
 
 int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int is_foreground, int is_piped){
     char *last_in = (char *)malloc(sizeof(char) * CMD_MAX);
@@ -166,14 +166,14 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int is_foreg
             ret_value = execute_activities(atomic);
         }
     }
-    /*else if(strcmp(atomic->argv[0], "fg") == 0){
+    else if(strcmp(atomic->argv[0], "bg") == 0){
         if(out_flag){
             int saved_stdout = dup(STDOUT_FILENO);
             int fd = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             dup2(fd, STDOUT_FILENO);
             close(fd);
 
-            ret_value = execute_fg(atomic);
+            ret_value = execute_bg(atomic);
 
             fflush(stdout);
             dup2(saved_stdout, STDOUT_FILENO);
@@ -185,16 +185,16 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int is_foreg
             dup2(fd, STDOUT_FILENO);
             close(fd);
 
-            ret_value = execute_fg(atomic);
+            ret_value = execute_bg(atomic);
 
             fflush(stdout);
             dup2(saved_stdout, STDOUT_FILENO);
             close(saved_stdout);   
         }
         else{
-            ret_value = execute_fg(atomic);
+            ret_value = execute_bg(atomic);
         }
-    }*/
+    }
     else{
         if(in_flag){
             int saved_stdin = dup(STDIN_FILENO);
