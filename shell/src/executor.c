@@ -6,8 +6,9 @@
 #include "../include/log.h"
 #include "../include/background.h"
 #include "../include/activities.h"
+#include "../include/signals.h"
 
-int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_number, BG_process **bg_prcs, int *active_bgs){
+int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_number, BG_process **bg_prcs, int *active_bgs, int is_foreground, int is_piped){
     char *last_in = (char *)malloc(sizeof(char) * CMD_MAX);
     char *last_outapp = (char *)malloc(sizeof(char) * CMD_MAX);
     int in_flag = 0;
@@ -177,7 +178,7 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
                 dup2(fd_out, STDOUT_FILENO);
                 close(fd_out);
 
-                ret_value = execute_arbitrary(atomic);
+                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
 
                 fflush(stdout);
                 dup2(saved_stdout, STDOUT_FILENO);
@@ -189,14 +190,14 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
                 dup2(fd_app, STDOUT_FILENO);
                 close(fd_app);
 
-                ret_value = execute_arbitrary(atomic);
+                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
 
                 fflush(stdout);
                 dup2(saved_stdout, STDOUT_FILENO);
                 close(saved_stdout);   
             }
             else{
-                ret_value = execute_arbitrary(atomic);
+                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
             }
 
             fflush(stdout);
@@ -211,7 +212,7 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
                 dup2(fd_out, STDOUT_FILENO);
                 close(fd_out);
 
-                ret_value = execute_arbitrary(atomic);
+                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
 
                 fflush(stdout);
                 dup2(saved_stdout, STDOUT_FILENO);
@@ -223,14 +224,14 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
                 dup2(fd_app, STDOUT_FILENO);
                 close(fd_app);
 
-                ret_value = execute_arbitrary(atomic);
+                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
 
                 fflush(stdout);
                 dup2(saved_stdout, STDOUT_FILENO);
                 close(saved_stdout);   
             }
             else{
-                ret_value = execute_arbitrary(atomic);
+                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
             }
         }
     }
@@ -240,13 +241,13 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int *job_num
     return ret_value;
 }
 
-int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int *job_number, BG_process **bg_prcs, int *active_bgs){
+int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int *job_number, BG_process **bg_prcs, int *active_bgs, int is_foreground){
     int atomic_num = cmd_group->count;
     if(atomic_num == 0) return 1;
 
     // If no pipes are there, just execute normally
     if(atomic_num == 1){
-        return execute_atomic(cmd_group->atomics[0], pwd, shell_dir, job_number, bg_prcs, active_bgs);
+        return execute_atomic(cmd_group->atomics[0], pwd, shell_dir, job_number, bg_prcs, active_bgs, is_foreground, 0);    // 0 because it isn't piped
     }
 
     int pipes[atomic_num - 1][2];       // Two file descriptors per pipe
@@ -261,6 +262,8 @@ int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int 
     pid_t child_pids[atomic_num];   // Storing PIDs of forked child processes
     pid_t final_pid;
 
+    pid_t pgid = 0;
+
     // Creating a child process for each pipe and redirecting as required
     for(int i = 0; i < atomic_num; i++){
         pid_t pid = fork();
@@ -268,6 +271,11 @@ int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int 
             return 1;
         }
         if(pid == 0){
+            if(i == 0){     // The first process becomes the leader of the process group
+                pgid = getpid();
+            }
+            setpgid(0, pgid);   // Each process is being assigned the same process group ID
+
             if(i > 0) dup2(pipes[i-1][0], STDIN_FILENO);    // Other than first command, redirect STDIN to previous pipe's read end
             if(i < atomic_num - 1) dup2(pipes[i][1], STDOUT_FILENO);    // Other than last command, redirect STDOUT to current pipe's write end
             
@@ -278,9 +286,13 @@ int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int 
             }
 
             // Executes the atomic
-            int status = execute_atomic(cmd_group->atomics[i], pwd, shell_dir, job_number, bg_prcs, active_bgs);
+            int status = execute_atomic(cmd_group->atomics[i], pwd, shell_dir, job_number, bg_prcs, active_bgs, is_foreground, 1);      // 1 because it is piped
             exit(status);
         }
+        if(i == 0) pgid = pid;
+        setpgid(pid, pgid);
+        if(is_foreground) fg_pgid = pgid;
+
         child_pids[i] = pid;
         if(i == atomic_num - 1) final_pid = pid;
     }
@@ -326,6 +338,8 @@ int execute_cmd_group(CmdGroupNode *cmd_group, char **pwd, char *shell_dir, int 
 int execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir, char *command, int *job_number, BG_process **bg_prcs, int *active_bgs){
     // First identify if a shell_group is to be a background process or not
     for(int i = 0; i < shell_cmd->count; i++){
+        signal(SIGINT, sigint_handler);     // Installing signal handler
+
         char op;
         if(i < shell_cmd->count - 1){
             op = shell_cmd->operators[i];
@@ -337,7 +351,8 @@ int execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir, char
 
         // If it isn't a background process, execute
         if(op == ';'){
-            return execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir, job_number, bg_prcs, active_bgs);
+            execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir, job_number, bg_prcs, active_bgs, 1);    // 1 because it is a foreground process
+            fg_pgid = 0;
         }
 
         else{
@@ -347,7 +362,7 @@ int execute_shell_cmd(ShellCmdNode *shell_cmd, char **pwd, char *shell_dir, char
                 return 1;
             }
             else if(pid == 0){
-                int exit_status = execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir, job_number, bg_prcs, active_bgs);
+                int exit_status = execute_cmd_group(shell_cmd->cmd_groups[i], pwd, shell_dir, job_number, bg_prcs, active_bgs, 0);
                 exit(exit_status);
             }
             else{

@@ -5,6 +5,10 @@
 #include "../include/executor.h"
 #include "../include/log.h"
 #include "../include/background.h"
+#include "../include/signals.h"
+
+pid_t fg_pgid = 0;
+int cont = 0;
 
 int main(){
     char *prev_wd = (char *)malloc(sizeof(char) * PATH_MAX);       // Buffer to store path of previous working directory, empty is none
@@ -23,11 +27,21 @@ int main(){
     int job_number = 1;
 
     while(1){
+        signal(SIGINT, sigint_handler);     // Installing signal handler for Ctrl-C
+        if(cont){
+            cont = 0;
+            continue;
+        }
+
         char *command = (char *)malloc(sizeof(char) * CMD_MAX);     // Storing command
         show_prompt(shell_dir);
     
         int ret = scanf(" %[^\n]", command);      
         if(ret == EOF){
+            if(errno == EINTR){
+                free(command);
+                continue;
+            }
             for(int i = 0; i < active_bgs; i++){
                 kill(bg_prcs[i].pid, SIGKILL);
             }

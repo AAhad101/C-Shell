@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <errno.h>
 #include "parser.h"
 
 #define CMD_MAX 4096
@@ -29,6 +30,10 @@ typedef struct BG_process{
     char *command;
     Status status;
 } BG_process;
+
+extern pid_t fg_pgid;
+
+extern int cont;
 
 char *int_to_str(int number);
 
