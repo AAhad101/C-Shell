@@ -14,14 +14,14 @@ int verify_activities(AtomicNode *atomic){
     return 0;
 }
 
-int execute_activities(AtomicNode *atomic, BG_process **bg_prcs, int *active_bgs){
+int execute_activities(AtomicNode *atomic){
     int valid_activities = verify_activities(atomic);
     if(!valid_activities) return 1;
 
-    qsort(*bg_prcs, *active_bgs, sizeof(BG_process), compare_bgs);
+    qsort(bg_prcs, active_bgs, sizeof(BG_process), compare_bgs);
     
-    for(int i = 0; i < *active_bgs; i++){
-        BG_process cur_prcs = (*bg_prcs)[i];
+    for(int i = 0; i < active_bgs; i++){
+        BG_process cur_prcs = bg_prcs[i];
         char *state = (char *)malloc(sizeof(char) * 25);
         if(cur_prcs.status == RUNNING) strcpy(state, "Running");
         else if(cur_prcs.status == STOPPED) strcpy(state, "Stopped");

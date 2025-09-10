@@ -81,3 +81,10 @@ char *stringify_cmd_group(CmdGroupNode *cmd_group){
 
     return string;
 }
+
+int is_natural_num(char *str){
+    for(int i = 0; i < (int)strlen(str); i++){
+        if(str[i] < '0' || str[i] > '9') return 0;
+    }
+    return 1;
+}

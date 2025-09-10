@@ -8,7 +8,12 @@
 #include "../include/signals.h"
 
 pid_t fg_pgid = 0;
-int cont = 0;
+int sigint_cont = 0;
+int sigtstp_cont = 0;
+char *fg_cmd;
+BG_process *bg_prcs = NULL;
+int active_bgs = 0;
+int job_number = 1;
 
 int main(){
     char *prev_wd = (char *)malloc(sizeof(char) * PATH_MAX);       // Buffer to store path of previous working directory, empty is none
@@ -22,14 +27,15 @@ int main(){
     FILE *log_file = fopen(log_path, "a");
     fclose(log_file);
 
-    BG_process *bg_prcs = NULL;
-    int active_bgs = 0;
-    int job_number = 1;
-
     while(1){
         signal(SIGINT, sigint_handler);     // Installing signal handler for Ctrl-C
-        if(cont){
-            cont = 0;
+        if(sigint_cont){
+            sigint_cont = 0;
+            continue;
+        }
+        signal(SIGTSTP, sigtstp_handler);   // Installing signal handler for Ctrl-Z
+        if(sigtstp_cont){
+            sigtstp_cont = 0;
             continue;
         }
 
@@ -42,14 +48,19 @@ int main(){
                 free(command);
                 continue;
             }
+            
+            printf("logout\n");
+
             for(int i = 0; i < active_bgs; i++){
                 kill(bg_prcs[i].pid, SIGKILL);
+                waitpid(bg_prcs[i].pid, NULL, 0);
             }
-            printf("logout\n");
+            
+            fflush(stdout);
             exit(0);
         }
 
-        print_terminated_bg(&bg_prcs, &active_bgs);
+        print_terminated_bg();
 
         Token *tokenised_cmd = tokenise(command);       // Tokenising command
         
@@ -79,7 +90,7 @@ int main(){
                 continue;
             }
             
-            execute_shell_cmd(root, &prev_wd, shell_dir, command, &job_number, &bg_prcs, &active_bgs);   // Executing valid command
+            execute_shell_cmd(root, &prev_wd, shell_dir, command);   // Executing valid command
             log_append(command, root, shell_dir);  // Logging appropriately
         }
 

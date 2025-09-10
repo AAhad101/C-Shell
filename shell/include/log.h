@@ -15,6 +15,6 @@ int check_repeat(char *command, char *log_path);
 
 void log_append(char *commmand, ShellCmdNode *shell_cmd, char *shell_dir);
 
-int execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd, int *job_number, BG_process **bg_prcs, int *active_bgs);
+int execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd);
 
 #endif

@@ -32,8 +32,12 @@ typedef struct BG_process{
 } BG_process;
 
 extern pid_t fg_pgid;
-
-extern int cont;
+extern int sigint_cont;
+extern int sigtstp_cont;
+extern char *fg_cmd;
+extern BG_process *bg_prcs;
+extern int active_bgs;
+extern int job_number;
 
 char *int_to_str(int number);
 
@@ -46,6 +50,8 @@ int str_to_int(char *str);
 char *stringify_atomic(AtomicNode *atomic_cmd);
 
 char *stringify_cmd_group(CmdGroupNode *cmd_group);
+
+int is_natural_num(char *str);
 
 #endif
 

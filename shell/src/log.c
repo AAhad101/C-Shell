@@ -104,7 +104,7 @@ void log_append(char *command, ShellCmdNode *shell_cmd, char *shell_dir){
     }
 }
 
-int execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd, int *job_number, BG_process **bg_prcs, int *active_bgs){
+int execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd, int *job_number){
     // Checking if the log syntax is valid or not
     int valid_log = log_verify(atomic_cmd);
 
@@ -168,7 +168,7 @@ int execute_log(AtomicNode *atomic_cmd, char *shell_dir, char **pwd, int *job_nu
                 return 1;
             }
             
-            ret_value = execute_shell_cmd(root, pwd, shell_dir, command, job_number, bg_prcs, active_bgs);   // Executing valid command
+            ret_value = execute_shell_cmd(root, pwd, shell_dir, command);   // Executing valid command
             log_append(command, root, shell_dir);  // Logging appropriately
         }
 

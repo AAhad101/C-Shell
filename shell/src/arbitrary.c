@@ -15,7 +15,10 @@ int execute_arbitrary(AtomicNode *atomic_cmd, int is_foreground, int is_piped){
     }
 
     else{
-        if(is_foreground && !is_piped) fg_pgid = pid;
+        if(is_foreground && !is_piped){
+            fg_pgid = pid;
+            fg_cmd = strdup(stringify_atomic(atomic_cmd));
+        }
         //printf("fg_pgid %d\n", fg_pgid);
 
         int status;

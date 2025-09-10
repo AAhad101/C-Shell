@@ -5,6 +5,6 @@ int compare_bgs(const void *a, const void *b);
 
 int verify_activities(AtomicNode *atomic);
 
-int execute_activities(AtomicNode *atomic, BG_process **bg_prcs, int *active_bgs);
+int execute_activities(AtomicNode *atomic);
 
 #endif
