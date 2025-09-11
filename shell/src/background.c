@@ -75,7 +75,10 @@ void remove_terminated_bg(){
 void print_terminated_bg(){
     for(int i = 0; i < active_bgs; i++){
         BG_process cur_prcs = bg_prcs[i];
-        
+        if(cur_prcs.status == TERMINATED){
+            printf("%s with pid %d exited abnormally\n", cur_prcs.command , cur_prcs.pid);
+        } 
+
         int status;
         pid_t ret = waitpid(cur_prcs.pid, &status, WNOHANG);
 

@@ -8,6 +8,7 @@
 #include "../include/activities.h"
 #include "../include/signals.h"
 #include "../include/bg.h"
+#include "../include/ping.h"
 
 int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int is_foreground, int is_piped){
     char *last_in = (char *)malloc(sizeof(char) * CMD_MAX);
@@ -164,6 +165,35 @@ int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int is_foreg
         }
         else{
             ret_value = execute_activities(atomic);
+        }
+    }
+    else if(strcmp(atomic->argv[0], "ping") == 0){
+        if(out_flag){
+            int saved_stdout = dup(STDOUT_FILENO);
+            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+
+            ret_value = execute_ping(atomic);
+
+            fflush(stdout);
+            dup2(saved_stdout, STDOUT_FILENO);
+            close(saved_stdout);
+        }
+        else if(app_flag){
+            int saved_stdout = dup(STDOUT_FILENO);
+            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+
+            ret_value = execute_ping(atomic);
+
+            fflush(stdout);
+            dup2(saved_stdout, STDOUT_FILENO);
+            close(saved_stdout);   
+        }
+        else{
+            ret_value = execute_ping(atomic);
         }
     }
     else if(strcmp(atomic->argv[0], "bg") == 0){
