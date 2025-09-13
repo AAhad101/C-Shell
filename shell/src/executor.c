@@ -10,294 +10,120 @@
 #include "../include/bg.h"
 #include "../include/ping.h"
 
-int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int is_foreground, int is_piped){
-    char *last_in = (char *)malloc(sizeof(char) * CMD_MAX);
-    char *last_outapp = (char *)malloc(sizeof(char) * CMD_MAX);
-    int in_flag = 0;
-    int out_flag = 0;
-    int app_flag = 0;
-  
-    if(atomic->count){
-        for(int i = 0; i < atomic->count; i++){
+int execute_atomic(AtomicNode *atomic, char **pwd, char *shell_dir, int is_foreground, int is_piped) {
+    char *input_file = NULL;
+    char *output_file = NULL;
+    int append_mode = 0; // 0 for truncate (>), 1 for append (>>)
+
+    int saved_stdin = -1;
+    int saved_stdout = -1;
+    int ret_value = 0;
+
+    // The command fails if any redirection is invalid.
+    if (atomic->count) {
+        for (int i = 0; i < atomic->count; i++) {
             char *op = atomic->op[i];
             char *file = atomic->files[i];
-            if(strcmp(op, "<") == 0){
-                in_flag = 1;
-                strcpy(last_in, file);
-            }
-            else if(strcmp(op, ">") == 0){
-                out_flag = 1;
-                app_flag = 0;
-                strcpy(last_outapp, file);
-            }
-            else if(strcmp(op, ">>") == 0){
-                app_flag = 1;
-                out_flag = 0;
-                strcpy(last_outapp, file);
+
+            if (strcmp(op, "<") == 0) {
+                // Check for read access. If it fails, the whole command fails.
+                if (access(file, R_OK) != 0) {
+                    perror(file);
+                    // Free any allocated memory before returning
+                    if (input_file) free(input_file);
+                    if (output_file) free(output_file);
+                    return 1;
+                }
+                if (input_file) free(input_file);
+                input_file = strdup(file);
+            } else if (strcmp(op, ">") == 0 || strcmp(op, ">>") == 0) {
+                // Check for write access by attempting to open the file.
+                int flags = O_WRONLY | O_CREAT;
+                if (strcmp(op, ">>") == 0) {
+                    flags |= O_APPEND;
+                } else {
+                    flags |= O_TRUNC;
+                }
+
+                int fd = open(file, flags, 0644);
+                if (fd < 0) {
+                    printf("Unable to create file for writing\n");
+                    if (input_file) free(input_file);
+                    if (output_file) free(output_file);
+                    return 1;
+                }
+                close(fd); // Successfully checked, so close it.
+
+                if (output_file) free(output_file);
+                output_file = strdup(file);
+                append_mode = (strcmp(op, ">>") == 0);
             }
         }
     }
 
-    if(in_flag){
-        FILE *input_file = fopen(last_in, "r");
-        if(!input_file){
-            printf("No such file or directory\n");
-            free(last_in);
-            free(last_outapp);
+    if (input_file) {
+        saved_stdin = dup(STDIN_FILENO);
+        int fd_in = open(input_file, O_RDONLY);
+        if (fd_in < 0) {
+            perror(input_file);
+            if (input_file) free(input_file);
+            if (output_file) free(output_file);
             return 1;
         }
-        fclose(input_file);
+        dup2(fd_in, STDIN_FILENO);
+        close(fd_in);
     }
 
-    int ret_value = 1;
-
-    if(strcmp(atomic->argv[0], "hop") == 0){        /// CHANGE CHANGE CHANGE CHANGE 
-        if(out_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_hop(atomic, pwd, shell_dir);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);
-        }
-        else if(app_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_hop(atomic, pwd, shell_dir);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);   
-        }
-        else{
-            ret_value = execute_hop(atomic, pwd, shell_dir);
-        }
-    }
-    else if(strcmp(atomic->argv[0], "reveal") == 0){
-        if(out_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_reveal(atomic, pwd, shell_dir);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);
-        }
-        else if(app_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_reveal(atomic, pwd, shell_dir);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);   
-        }
-        else{
-            ret_value = execute_reveal(atomic, pwd, shell_dir);
-        }
-    }
-    else if(strcmp(atomic->argv[0], "log") == 0){
-        if(out_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_log(atomic, shell_dir, pwd);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);
-        }
-        else if(app_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_log(atomic, shell_dir, pwd);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);   
-        }
-        else{
-            ret_value = execute_log(atomic, shell_dir, pwd);
-        }
-    }
-    else if(strcmp(atomic->argv[0], "activities") == 0){
-        if(out_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_activities(atomic);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);
-        }
-        else if(app_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_activities(atomic);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);   
-        }
-        else{
-            ret_value = execute_activities(atomic);
-        }
-    }
-    else if(strcmp(atomic->argv[0], "ping") == 0){
-        if(out_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_ping(atomic);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);
-        }
-        else if(app_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_ping(atomic);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);   
-        }
-        else{
-            ret_value = execute_ping(atomic);
-        }
-    }
-    else if(strcmp(atomic->argv[0], "bg") == 0){
-        if(out_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_bg(atomic);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);
-        }
-        else if(app_flag){
-            int saved_stdout = dup(STDOUT_FILENO);
-            int fd = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-
-            ret_value = execute_bg(atomic);
-
-            fflush(stdout);
-            dup2(saved_stdout, STDOUT_FILENO);
-            close(saved_stdout);   
-        }
-        else{
-            ret_value = execute_bg(atomic);
-        }
-    }
-    else{
-        if(in_flag){
-            int saved_stdin = dup(STDIN_FILENO);
-            int fd_in = open(last_in, O_RDONLY);
-            dup2(fd_in, STDIN_FILENO);
-            close(fd_in);
-
-            if(out_flag){
-                int saved_stdout = dup(STDOUT_FILENO);
-                int fd_out = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                dup2(fd_out, STDOUT_FILENO);
-                close(fd_out);
-
-                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
-
-                fflush(stdout);
-                dup2(saved_stdout, STDOUT_FILENO);
-                close(saved_stdout);
+    if (output_file) {
+        saved_stdout = dup(STDOUT_FILENO);
+        int flags = O_WRONLY | O_CREAT;
+        flags |= (append_mode) ? O_APPEND : O_TRUNC;
+        
+        int fd_out = open(output_file, flags, 0644);
+        if (fd_out < 0) {
+            perror(output_file);
+            if (saved_stdin != -1) {
+                dup2(saved_stdin, STDIN_FILENO);
+                close(saved_stdin);
             }
-            else if(app_flag){
-                int saved_stdout = dup(STDOUT_FILENO);
-                int fd_app = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
-                dup2(fd_app, STDOUT_FILENO);
-                close(fd_app);
-
-                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
-
-                fflush(stdout);
-                dup2(saved_stdout, STDOUT_FILENO);
-                close(saved_stdout);   
-            }
-            else{
-                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
-            }
-
-            fflush(stdout);
-            dup2(saved_stdin, STDIN_FILENO);
-            close(saved_stdin);
+            if (input_file) free(input_file);
+            if (output_file) free(output_file);
+            return 1;
         }
-
-        else{
-            if(out_flag){
-                int saved_stdout = dup(STDOUT_FILENO);
-                int fd_out = open(last_outapp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                dup2(fd_out, STDOUT_FILENO);
-                close(fd_out);
-
-                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
-
-                fflush(stdout);
-                dup2(saved_stdout, STDOUT_FILENO);
-                close(saved_stdout);
-            }
-            else if(app_flag){
-                int saved_stdout = dup(STDOUT_FILENO);
-                int fd_app = open(last_outapp, O_WRONLY | O_CREAT | O_APPEND, 0644);
-                dup2(fd_app, STDOUT_FILENO);
-                close(fd_app);
-
-                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
-
-                fflush(stdout);
-                dup2(saved_stdout, STDOUT_FILENO);
-                close(saved_stdout);   
-            }
-            else{
-                ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
-            }
-        }
+        dup2(fd_out, STDOUT_FILENO);
+        close(fd_out);
     }
-    
-    free(last_in);
-    free(last_outapp);
+
+    char* cmd = atomic->argv[0];
+    if (strcmp(cmd, "hop") == 0) {
+        ret_value = execute_hop(atomic, pwd, shell_dir);
+    } else if (strcmp(cmd, "reveal") == 0) {
+        ret_value = execute_reveal(atomic, pwd, shell_dir);
+    } else if (strcmp(cmd, "log") == 0) {
+        ret_value = execute_log(atomic, shell_dir, pwd);
+    } else if (strcmp(cmd, "activities") == 0) {
+        ret_value = execute_activities(atomic);
+    } else if (strcmp(cmd, "ping") == 0) {
+        ret_value = execute_ping(atomic);
+    } else if (strcmp(cmd, "bg") == 0) {
+        ret_value = execute_bg(atomic);
+    } else {
+        ret_value = execute_arbitrary(atomic, is_foreground, is_piped);
+    }
+
+    if (saved_stdin != -1) {
+        dup2(saved_stdin, STDIN_FILENO);
+        close(saved_stdin);
+    }
+    if (saved_stdout != -1) {
+        fflush(stdout);
+        dup2(saved_stdout, STDOUT_FILENO);
+        close(saved_stdout);
+    }
+
+    if (input_file) free(input_file);
+    if (output_file) free(output_file);
+
     return ret_value;
 }
 
