@@ -6,6 +6,7 @@
 #include "../include/log.h"
 #include "../include/background.h"
 #include "../include/signals.h"
+#include "../include/ping.h"
 
 pid_t fg_pgid = 0;
 int sigint_cont = 0;

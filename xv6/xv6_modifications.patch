@@ -1,0 +1,466 @@
+diff --git a/Makefile b/Makefile
+index 2d5f9e4..9704efa 100644
+--- a/Makefile
++++ b/Makefile
+@@ -62,6 +62,15 @@ OBJDUMP = $(TOOLPREFIX)objdump
+ CFLAGS = -Wall -Werror -Wno-unknown-attributes -O -fno-omit-frame-pointer -ggdb -gdwarf-2
+ CFLAGS += -MD
+ CFLAGS += -mcmodel=medany
++
++ifeq ($(SCHEDULER), FCFS)
++CFLAGS += -DFCFS
++endif
++
++ifeq ($(SCHEDULER), CFS)
++CFLAGS += -DCFS
++endif
++
+ CFLAGS += -ffreestanding
+ CFLAGS += -fno-common -nostdlib
+ CFLAGS += -fno-builtin-strncpy -fno-builtin-strncmp -fno-builtin-strlen -fno-builtin-memset
+@@ -142,8 +151,12 @@ UPROGS=\
+ 	$U/_logstress\
+ 	$U/_forphan\
+ 	$U/_dorphan\
++    $U/_read_count\
++    $U/_fcfs_test\
++    $U/_cfs_test\
++    $U/_schedulertests\
+ 
+-fs.img: mkfs/mkfs README $(UPROGS)
++fs.img: mkfs/mkfs README $(UPROGS) kernel/kernel
+ 	mkfs/mkfs fs.img README $(UPROGS)
+ 
+ -include kernel/*.d user/*.d
+diff --git a/kernel/defs.h b/kernel/defs.h
+index 122d9ca..476013a 100644
+--- a/kernel/defs.h
++++ b/kernel/defs.h
+@@ -136,6 +136,10 @@ int             fetchstr(uint64, char*, int);
+ int             fetchaddr(uint64, uint64*);
+ void            syscall();
+ 
++
++uint64 sys_getreadcount(void);
++extern uint64 reads_total;
++
+ // trap.c
+ extern uint     ticks;
+ void            trapinit(void);
+diff --git a/kernel/file.c b/kernel/file.c
+index 8912b7e..45c0827 100644
+--- a/kernel/file.c
++++ b/kernel/file.c
+@@ -126,6 +126,15 @@ fileread(struct file *f, uint64 addr, int n)
+     panic("fileread");
+   }
+ 
++  // Increment the global counter of bytes read
++  if(r > 0){
++    uint64 initial_count = reads_total;
++    reads_total += r;
++    if(reads_total < initial_count){
++      reads_total = 0;      // This handles overflow by wrapping around to 0
++    }
++  }
++
+   return r;
+ }
+ 
+diff --git a/kernel/param.h b/kernel/param.h
+index cd2a41c..4b96955 100644
+--- a/kernel/param.h
++++ b/kernel/param.h
+@@ -1,3 +1,5 @@
++#include "types.h"
++
+ #define NPROC        64  // maximum number of processes
+ #define NCPU          8  // maximum number of CPUs
+ #define NOFILE       16  // open files per process
+@@ -13,3 +15,10 @@
+ #define MAXPATH      128   // maximum file path name
+ #define USERSTACK    1     // user stack pages
+ 
++//#define FCFS 1
++//#define CFS 2
++
++#define TARGET_LATENCY 48       // Defined for CFS
++
++// Array of nice values for CFS
++extern const uint nice_weights[];
+diff --git a/kernel/proc.c b/kernel/proc.c
+index 9d6cf3f..8269158 100644
+--- a/kernel/proc.c
++++ b/kernel/proc.c
+@@ -5,6 +5,11 @@
+ #include "spinlock.h"
+ #include "proc.h"
+ #include "defs.h"
++#include "param.h"
++
++#ifdef CFS
++const uint nice_weights[] =  {88761, 71755, 56483, 46273, 36291, 29154, 23254, 18705, 14949, 11916, 9548, 7620, 6100, 4904, 3906, 3121, 2501, 1991, 1586, 1277, 1024, 820, 655, 526, 423, 335, 272, 215, 172, 137, 110, 87, 70, 56, 45, 36, 29, 23, 18, 15};
++#endif
+ 
+ struct cpu cpus[NCPU];
+ 
+@@ -102,6 +107,14 @@ allocpid()
+   return pid;
+ }
+ 
++#ifdef CFS
++static uint calc_weight(int nice){
++  if(nice < -20) nice = -20;
++  if(nice > 19) nice = 19;
++  return nice_weights[nice + 20];
++}
++#endif
++
+ // Look in the process table for an UNUSED proc.
+ // If found, initialize state required to run in the kernel,
+ // and return with p->lock held.
+@@ -146,6 +159,19 @@ found:
+   p->context.ra = (uint64)forkret;
+   p->context.sp = p->kstack + PGSIZE;
+ 
++  // Initialising scheduling statistics
++  p->creation_time = ticks;
++  p->run_time = 0;
++  p->wait_time = 0;
++  
++#ifdef CFS
++  // Initialising CFS specific fields defined in proc.h
++  p->nice = 0;
++  p->vruntime = 0;
++  p->weight = calc_weight(p->nice);
++  p->ticks_run = 0;
++#endif
++
+   return p;
+ }
+ 
+@@ -289,6 +315,10 @@ kfork(void)
+ 
+   pid = np->pid;
+ 
++#ifdef CFS
++  np->vruntime = p->vruntime;
++#endif
++
+   release(&np->lock);
+ 
+   acquire(&wait_lock);
+@@ -325,6 +355,14 @@ kexit(int status)
+ {
+   struct proc *p = myproc();
+ 
++  // Code commented as it is for printing scheduling statistics
++
++  /*printf("\n--- Process %d Finished ---\n", p->pid);
++  printf("Run Time:      %d ticks\n", p->run_time);
++  printf("Wait Time:     %d ticks\n", p->wait_time);
++  printf("Turnaround Time: %d ticks\n", ticks - p->creation_time);
++  printf("--------------------------\n");*/
++
+   if(p == initproc)
+     panic("init exiting");
+ 
+@@ -435,6 +473,65 @@ scheduler(void)
+     intr_off();
+ 
+     int found = 0;
++#ifdef FCFS
++    struct proc *earliest_proc = 0;
++    for(p = proc; p < &proc[NPROC]; p++) {
++      if (p->state == RUNNABLE) {
++        if (earliest_proc == 0 || p->creation_time < earliest_proc->creation_time) {
++          earliest_proc = p;
++        }
++      }
++    }
++    if (earliest_proc) {
++      p = earliest_proc;
++      acquire(&p->lock);
++      if(p->state == RUNNABLE) {
++        p->state = RUNNING;
++        c->proc = p;
++        swtch(&c->context, &p->context);
++
++        c->proc = 0;
++        found = 1;
++      }
++      release(&p->lock);
++    }
++#elif defined(CFS)
++    struct proc *min_vruntime_proc = 0;
++    uint num_runnable_procs = 0;
++
++    // Finding the number of runnable processes and the runnable process with the least vruntime
++    for(p = proc; p < &proc[NPROC]; p++){
++      if(p->state == RUNNABLE){
++        num_runnable_procs++;
++        if(min_vruntime_proc == 0 || p->vruntime < min_vruntime_proc->vruntime){
++          min_vruntime_proc = p;
++        }
++      }
++    }
++
++    // Logging for debugging
++    if(min_vruntime_proc){
++      printf("\n[Scheduler Tick]\n");
++      for(p = proc; p < &proc[NPROC]; p++) {
++        if(p->state == RUNNABLE) {
++          printf("PID: %d | vRuntime: %ld\n", p->pid, p->vruntime);
++        }
++      }
++
++      p = min_vruntime_proc;
++      printf("--> Scheduling PID %d (lowest vRuntime)\n", p->pid);
++      acquire(&p->lock);
++      if(p->state == RUNNABLE) {
++        p->state = RUNNING;
++        c->proc = p;
++        swtch(&c->context, &p->context);
++        c->proc = 0;
++        found = 1;
++      }
++      release(&p->lock);
++    }
++
++#else
+     for(p = proc; p < &proc[NPROC]; p++) {
+       acquire(&p->lock);
+       if(p->state == RUNNABLE) {
+@@ -452,6 +549,7 @@ scheduler(void)
+       }
+       release(&p->lock);
+     }
++#endif
+     if(found == 0) {
+       // nothing to run; stop running on this core until an interrupt.
+       asm volatile("wfi");
+@@ -671,17 +769,28 @@ procdump(void)
+   [ZOMBIE]    "zombie"
+   };
+   struct proc *p;
+-  char *state;
+ 
+   printf("\n");
+   for(p = proc; p < &proc[NPROC]; p++){
+     if(p->state == UNUSED)
+       continue;
++
++#ifdef FCFS
++    printf("%d %s %s creation_time=%d", p->pid, states[p->state], p->name, p->creation_time);
++    printf("\n");
++
++#elif defined(CFS)
++    printf("%d %s %s nice=%d vruntime=%ld weight=%d", p->pid, states[p->state], p->name, p->nice, p->vruntime, p->weight);
++    printf("\n");
++
++#else
++    char *state;
+     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
+       state = states[p->state];
+     else
+       state = "???";
+     printf("%d %s %s", p->pid, state, p->name);
+     printf("\n");
++#endif
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/kernel/proc.h b/kernel/proc.h
+index d021857..8d20f8a 100644
+--- a/kernel/proc.h
++++ b/kernel/proc.h
+@@ -1,3 +1,6 @@
++#include "types.h"
++#include "param.h"
++
+ // Saved registers for kernel context switches.
+ struct context {
+   uint64 ra;
+@@ -104,4 +107,18 @@ struct proc {
+   struct file *ofile[NOFILE];  // Open files
+   struct inode *cwd;           // Current directory
+   char name[16];               // Process name (debugging)
++
++  // Scheduling statistics
++  uint creation_time;          // Process creation time (especially for FCFS)
++  uint run_time;               // Number of ticks the process has been RUNNING
++  uint wait_time;              // Number of ticks the process has been in RUNNABLE state
++
++#ifdef CFS
++  int nice;                    // Nice value for priority
++  uint64 vruntime;             // Virtual runtime
++  uint weight;                 // Priority weight (based on nice value)
++  uint ticks_run;              // Number of ticks a process has run
++#endif
+ };
++
++extern struct proc proc[NPROC];
+\ No newline at end of file
+diff --git a/kernel/syscall.c b/kernel/syscall.c
+index 076d965..11d9310 100644
+--- a/kernel/syscall.c
++++ b/kernel/syscall.c
+@@ -126,6 +126,7 @@ static uint64 (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_getreadcount] sys_getreadcount,    // Added for new getreadcount syscall
+ };
+ 
+ void
+diff --git a/kernel/syscall.h b/kernel/syscall.h
+index 3dd926d..54b49a0 100644
+--- a/kernel/syscall.h
++++ b/kernel/syscall.h
+@@ -20,3 +20,5 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++
++#define SYS_getreadcount 22     // For new getreadcount syscall
+\ No newline at end of file
+diff --git a/kernel/sysproc.c b/kernel/sysproc.c
+index 3044d00..898f052 100644
+--- a/kernel/sysproc.c
++++ b/kernel/sysproc.c
+@@ -7,6 +7,8 @@
+ #include "proc.h"
+ #include "vm.h"
+ 
++uint64 reads_total = 0;   // Global variable to hold the total numberof bytes read
++
+ uint64
+ sys_exit(void)
+ {
+@@ -16,6 +18,10 @@ sys_exit(void)
+   return 0;  // not reached
+ }
+ 
++uint64 sys_getreadcount(void){
++  return reads_total;
++}
++
+ uint64
+ sys_getpid(void)
+ {
+diff --git a/kernel/trap.c b/kernel/trap.c
+index a41cd69..e222c59 100644
+--- a/kernel/trap.c
++++ b/kernel/trap.c
+@@ -80,9 +80,46 @@ usertrap(void)
+   if(killed(p))
+     kexit(-1);
+ 
++#if defined(CFS)
++  // Give up the CPU after the calculated time slice has expired
++  if(which_dev == 2) {     // This is a timer interrupt
++    struct proc *p = myproc();
++
++    if(p && p->state == RUNNING) {
++      // Update vruntime by the number of ticks the process runs.
++      p->vruntime += (1024 / p->weight);
++      p->ticks_run++;
++
++      // Countint all competing processes: RUNNING and RUNNABLE
++      int num_competitors = 0;
++      struct proc *iter_p;
++
++      for(iter_p = proc; iter_p < &proc[NPROC]; iter_p++) {
++        if(iter_p->state == RUNNABLE) {
++          num_competitors++;
++        }
++      }
++      num_competitors++;  // Add the current RUNNING process to the count.
++
++      // Now, calculate the time slice based on the number of competitors.
++      int timeslice = TARGET_LATENCY / num_competitors;
++      if (timeslice < 3) {
++        timeslice = 3; // Enforce a minimum time slice of 3 ticks.
++      }
++
++      // If the process has run for its calculated time slice, it must yield.
++      if (p->ticks_run >= timeslice) {
++        p->ticks_run = 0; // Reset counter for its next turn
++        yield();
++      }
++    }
++  }
++
++#elif !defined(FCFS)
+   // give up the CPU if this is a timer interrupt.
+   if(which_dev == 2)
+     yield();
++#endif
+ 
+   prepare_return();
+ 
+@@ -151,9 +188,11 @@ kerneltrap()
+     panic("kerneltrap");
+   }
+ 
++#if !defined(CFS) && !defined(FCFS)
+   // give up the CPU if this is a timer interrupt.
+   if(which_dev == 2 && myproc() != 0)
+     yield();
++#endif
+ 
+   // the yield() may have caused some traps to occur,
+   // so restore trap registers for use by kernelvec.S's sepc instruction.
+@@ -171,6 +210,19 @@ clockintr()
+     release(&tickslock);
+   }
+ 
++  // Updating process run/ wait times on every tick for all processes
++  struct proc *p;
++  for(p = proc; p < &proc[NPROC]; p++){
++    acquire(&p->lock);
++    if(p->state == RUNNING){
++      p->run_time++;
++    }
++    else if(p->state == RUNNABLE){
++      p->wait_time++;
++    }
++    release(&p->lock);
++  }
++
+   // ask for the next timer interrupt. this also clears
+   // the interrupt request. 1000000 is about a tenth
+   // of a second.
+@@ -215,5 +267,4 @@ devintr()
+   } else {
+     return 0;
+   }
+-}
+-
++}
+\ No newline at end of file
+diff --git a/user/user.h b/user/user.h
+index ac84de9..d68b3c9 100644
+--- a/user/user.h
++++ b/user/user.h
+@@ -25,6 +25,8 @@ char* sys_sbrk(int,int);
+ int pause(int);
+ int uptime(void);
+ 
++int getreadcount(void);     // Added for new getreadcount syscall
++
+ // ulib.c
+ int stat(const char*, struct stat*);
+ char* strcpy(char*, const char*);
+diff --git a/user/usys.pl b/user/usys.pl
+index c5d4c3a..d8355db 100755
+--- a/user/usys.pl
++++ b/user/usys.pl
+@@ -42,3 +42,5 @@ entry("getpid");
+ entry("sbrk");
+ entry("pause");
+ entry("uptime");
++
++entry("getreadcount");      # Entry for new syscall getreadcount
+\ No newline at end of file
